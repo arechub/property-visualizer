@@ -1,4 +1,4 @@
-"""PropertyVisualizer - リフォームシミュレーター（Streamlit版）v0.7"""
+"""PropertyVisualizer - リフォームシミュレーター（Streamlit版）v0.8"""
 
 import base64
 import csv
@@ -219,13 +219,13 @@ def build_html_table(results):
     return '\n'.join(rows), int(total)
 
 
-def save_log(area, madori, pattern, estimated, actual=None):
+def save_log(area, madori, pattern, estimated, actual=None, note=''):
     is_new = not LOG_PATH.exists()
     ratio = round(actual / estimated, 4) if actual else ''
     row = {
         'date': date.today().isoformat(),
         'area': area, 'madori': madori, 'pattern': pattern,
-        'estimated': estimated, 'actual': actual or '', 'ratio': ratio, 'note': '',
+        'estimated': estimated, 'actual': actual or '', 'ratio': ratio, 'note': note,
     }
     with open(LOG_PATH, 'a', newline='', encoding='utf-8') as f:
         writer = csv.DictWriter(f, fieldnames=LOG_FIELDS)
@@ -424,8 +424,9 @@ def main():
     st.markdown(html_table, unsafe_allow_html=True)
     st.divider()
 
-    # ── 業者見積り比較 ────────────────────────────────────────
-    st.write("**業者見積りと比較する（任意）**")
+    # ── 業者見積り比較（必須） ─────────────────────────────────
+    st.write("**業者見積りと比較する**")
+    st.caption("実際の業者見積りを入力してください。データ蓄積によりシミュレーター精度が向上します。")
     quote = st.number_input("業者見積り金額（円）", min_value=0, value=0, step=10000)
 
     if quote > 0:
@@ -440,10 +441,19 @@ def main():
         else:
             st.success(f"概ね適正　概算比：{ratio:.0f}%")
 
-    if st.button("ログに保存", type="primary"):
-        actual = quote if quote > 0 else None
-        save_log(area, madori, pattern_choice, total, actual)
-        st.success("ログを保存しました。")
+    st.divider()
+
+    # ── フィードバック ────────────────────────────────────────
+    st.write("**フィードバック**")
+    st.caption("欲しい機能・項目の追加要望・気になった点など、何でもお書きください。今後のブラッシュアップに活用します。")
+    feedback = st.text_area("コメント（任意）", placeholder="例：〇〇の項目も欲しい / △△が使いにくかった など", height=100)
+
+    if quote == 0:
+        st.info("業者見積り金額を入力するとログを保存できます。")
+    else:
+        if st.button("ログに保存", type="primary"):
+            save_log(area, madori, pattern_choice, total, quote, note=feedback)
+            st.success("ログを保存しました。")
 
 
 if __name__ == '__main__':
