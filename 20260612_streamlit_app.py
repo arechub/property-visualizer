@@ -1,26 +1,24 @@
-"""PropertyVisualizer - リフォームシミュレーター（Streamlit版）v1.0"""
+"""PropertyVisualizer - リフォームシミュレーター（Streamlit版）v1.1"""
 
 import base64
 import csv
 import io
 import json
 import os
-import urllib.parse
 from datetime import date
 from pathlib import Path
 
-import requests
-
 import anthropic
 import pandas as pd
+import requests
 import streamlit as st
 from dotenv import load_dotenv
 from streamlit_paste_button import paste_image_button as pbutton
 
 # ── 使用制限（ここを変更するだけで上限を調整可） ───────────
-GUEST_SESSION_LIMIT = 5  # ゲスト：1セッションあたりの解析上限
+GUEST_SESSION_LIMIT = 5
 
-# ── その他定数 ───────────────────────────────────────────────
+# ── 定数 ────────────────────────────────────────────────────────
 WALL_AREA_FACTOR = 2.5
 PATTERN_TIERS = {'A': 1, 'B': 2, 'C': 3}
 
@@ -34,14 +32,12 @@ CLEANING_COSTS = {
     '2K': 48000, '2DK': 52000, '2LDK': 60000,
     '3DK': 65000, '3LDK': 75000, '4LDK': 90000,
 }
-
 CAT_LABELS = {
     'A': 'A：必須（原状回復）',
     'B': 'B：競争力向上',
     'C': 'C：商品化',
     'D': 'Custom項目',
 }
-
 PATTERN_DESC = {
     'A': 'クロス・CF・クリーニングのみ。退去後の最低限リフォーム。',
     'B': 'AにLED・温水洗浄便座・モニターホン・鍵交換を追加。賃貸募集力アップ。',
@@ -49,19 +45,34 @@ PATTERN_DESC = {
     'Custom': '全項目からチェックで自由に選択。',
 }
 
-MADORI_LIST = ['1R', '1K', '1DK', '1LDK', '2K', '2DK', '2LDK', '3DK', '3LDK', '4LDK']
+MADORI_LIST   = ['1R', '1K', '1DK', '1LDK', '2K', '2DK', '2LDK', '3DK', '3LDK', '4LDK']
+AGE_OPTIONS   = ['築10年未満', '築10〜20年', '築20〜30年', '築30年以上']
+STRUCT_OPTIONS = ['RC造（鉄筋コンクリート）', '木造', '軽量鉄骨造', '重量鉄骨造']
 
 IMAGE_STYLES = {
-    'シック':     'sophisticated, dark slate walls, dark wood flooring, moody lighting, minimal black furniture',
-    '明るく':    'bright and airy, white walls, light oak flooring, large windows, cheerful natural light',
-    'ナチュラル': 'natural wood, indoor plants, warm beige tones, linen textures, Japandi style',
-    'モダン':    'modern contemporary, concrete finish, steel accents, clean lines, monochrome palette',
+    'シック': {
+        'prompt': 'sophisticated, dark slate walls, dark wood flooring, moody lighting, minimal black furniture',
+        'bg': '#3d3d3d', 'fg': 'white', 'desc': 'ダーク&ラグジュアリー',
+    },
+    '明るく': {
+        'prompt': 'bright and airy, white walls, light oak flooring, large windows, cheerful natural light',
+        'bg': '#fff3cd', 'fg': '#555', 'desc': '白基調・開放感',
+    },
+    'ナチュラル': {
+        'prompt': 'natural wood, indoor plants, warm beige tones, linen textures, Japandi style',
+        'bg': '#c8e6c9', 'fg': '#2e4a2e', 'desc': '木材・植物・温もり',
+    },
+    'モダン': {
+        'prompt': 'modern contemporary, concrete finish, steel accents, clean lines, monochrome palette',
+        'bg': '#9e9e9e', 'fg': 'white', 'desc': 'コンクリート調・スタイリッシュ',
+    },
 }
 
 SCRIPT_DIR = Path(__file__).parent
-CSV_PATH = SCRIPT_DIR / '20260612_master_prices.csv'
-LOG_PATH = SCRIPT_DIR / 'renovation_log.csv'
-LOG_FIELDS = ['date', 'area', 'madori', 'pattern', 'estimated', 'actual', 'ratio', 'note']
+CSV_PATH   = SCRIPT_DIR / '20260612_master_prices.csv'
+LOG_PATH   = SCRIPT_DIR / 'renovation_log.csv'
+LOG_FIELDS = ['date', 'area', 'madori', 'age', 'structure', 'pattern',
+              'estimated', 'actual', 'ratio', 'note']
 
 load_dotenv(SCRIPT_DIR / '.env')
 
@@ -75,13 +86,11 @@ def load_items():
 
 # ── Vision API 解析 ───────────────────────────────────────────
 def analyze_floor_plan(image):
-    """Claude Vision API で間取り図（画像・PDF）を解析し辞書を返す"""
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
-        raise ValueError("APIキーが設定されていません。.env ファイルを確認してください。")
+        raise ValueError("APIキーが設定されていません。")
 
     model = os.environ.get("MADORI_MODEL", "claude-haiku-4-5-20251001")
-
     prompt = (
         "この間取り図を分析し、以下のJSON形式のみで返してください（前後の説明不要）：\n"
         '{"madori":"間取りタイプ（例：1K, 1LDK, 2LDK, 3LDK）",'
@@ -90,19 +99,14 @@ def analyze_floor_plan(image):
     )
 
     is_pdf = hasattr(image, 'type') and image.type == 'application/pdf'
-
     if is_pdf:
         pdf_bytes = image.read()
         image.seek(0)
         content = [
-            {
-                "type": "document",
-                "source": {
-                    "type": "base64",
-                    "media_type": "application/pdf",
-                    "data": base64.standard_b64encode(pdf_bytes).decode('utf-8'),
-                },
-            },
+            {"type": "document", "source": {
+                "type": "base64", "media_type": "application/pdf",
+                "data": base64.standard_b64encode(pdf_bytes).decode('utf-8'),
+            }},
             {"type": "text", "text": prompt},
         ]
     else:
@@ -112,30 +116,24 @@ def analyze_floor_plan(image):
             media_type = getattr(image, 'type', 'image/jpeg')
             if media_type not in ('image/png', 'image/jpeg', 'image/gif', 'image/webp'):
                 media_type = 'image/jpeg'
-        else:  # PIL Image（スクショ貼り付け）
+        else:
             buf = io.BytesIO()
             image.save(buf, format='PNG')
             image_bytes = buf.getvalue()
             media_type = 'image/png'
         content = [
-            {
-                "type": "image",
-                "source": {
-                    "type": "base64",
-                    "media_type": media_type,
-                    "data": base64.standard_b64encode(image_bytes).decode('utf-8'),
-                },
-            },
+            {"type": "image", "source": {
+                "type": "base64", "media_type": media_type,
+                "data": base64.standard_b64encode(image_bytes).decode('utf-8'),
+            }},
             {"type": "text", "text": prompt},
         ]
 
     client = anthropic.Anthropic(api_key=api_key)
     response = client.messages.create(
-        model=model,
-        max_tokens=512,
+        model=model, max_tokens=512,
         messages=[{"role": "user", "content": content}],
     )
-
     text = response.content[0].text.strip()
     if '```' in text:
         text = text.split('```')[1]
@@ -143,6 +141,28 @@ def analyze_floor_plan(image):
             text = text[4:]
         text = text.strip()
     return json.loads(text)
+
+
+# ── 画像生成（HuggingFace） ───────────────────────────────────
+def generate_room_image(madori, area, style_key):
+    token = os.environ.get("HUGGING_FACE_TOKEN")
+    if not token:
+        raise ValueError("HUGGING_FACE_TOKEN が設定されていません。")
+
+    style_prompt = IMAGE_STYLES[style_key]['prompt']
+    prompt = (
+        f"Japanese {madori} apartment interior room, {area:.0f} sqm, "
+        f"after renovation, {style_prompt}, "
+        "interior design photography, realistic, high quality, no people, no text"
+    )
+    resp = requests.post(
+        "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"inputs": prompt},
+        timeout=120,
+    )
+    resp.raise_for_status()
+    return resp.content
 
 
 # ── 計算 ──────────────────────────────────────────────────────
@@ -163,7 +183,6 @@ def calculate(area, madori, items):
     areas = {'floor': area, 'wall': round(area * WALL_AREA_FACTOR, 1)}
     room_count = ROOM_COUNTS.get(madori.upper(), 2)
     cleaning_cost = CLEANING_COSTS.get(madori.upper(), 55000)
-
     results = []
     for row in items:
         if row['quantity_basis'] == 'cleaning':
@@ -186,8 +205,8 @@ def build_html_table(results):
     df = pd.DataFrame(results)
     total = df['金額'].sum()
 
-    th = 'style="padding:8px 12px; text-align:{align}; background:#444; color:white;"'
-    td = 'style="padding:7px 12px; text-align:{align}; border-bottom:1px solid #e0e0e0;"'
+    th    = 'style="padding:8px 12px; text-align:{align}; background:#444; color:white;"'
+    td    = 'style="padding:7px 12px; text-align:{align}; border-bottom:1px solid #e0e0e0;"'
     td_sub = 'style="padding:7px 12px; text-align:{align}; background:#eeeeee; font-weight:bold;"'
     td_cat = 'style="padding:7px 12px; background:#666666; color:white; font-weight:bold;"'
     td_tot = 'style="padding:10px 12px; text-align:{align}; background:#333333; color:white; font-weight:bold; font-size:15px;"'
@@ -215,7 +234,7 @@ def build_html_table(results):
                 f'<td {td.format(align="left")}>{row["単位"]}</td>'
                 f'<td {td.format(align="right")}>¥{row["単価"]:,}</td>'
                 f'<td {td.format(align="right")}>¥{row["金額"]:,}</td>'
-                f'</tr>'
+                '</tr>'
             )
         rows.append(
             f'<tr><td colspan="4" {td_sub.format(align="right")}>小計</td>'
@@ -229,13 +248,14 @@ def build_html_table(results):
     return '\n'.join(rows), int(total)
 
 
-def save_log(area, madori, pattern, estimated, actual=None, note=''):
+def save_log(area, madori, age, structure, pattern, estimated, actual=None, note=''):
     is_new = not LOG_PATH.exists()
     ratio = round(actual / estimated, 4) if actual else ''
     row = {
         'date': date.today().isoformat(),
-        'area': area, 'madori': madori, 'pattern': pattern,
-        'estimated': estimated, 'actual': actual or '', 'ratio': ratio, 'note': note,
+        'area': area, 'madori': madori, 'age': age, 'structure': structure,
+        'pattern': pattern, 'estimated': estimated,
+        'actual': actual or '', 'ratio': ratio, 'note': note,
     }
     with open(LOG_PATH, 'a', newline='', encoding='utf-8') as f:
         writer = csv.DictWriter(f, fieldnames=LOG_FIELDS)
@@ -248,15 +268,14 @@ def save_log(area, madori, pattern, estimated, actual=None, note=''):
 def main():
     st.set_page_config(page_title="リフォームシミュレーター", layout="centered")
 
-    # セッション初期化
     if 'floor_plan' not in st.session_state:
-        st.session_state.floor_plan = None
+        st.session_state.floor_plan      = None
         st.session_state.floor_plan_name = None
         st.session_state.analysis_result = None
-        st.session_state.is_master = False
+        st.session_state.is_master       = False
         st.session_state.session_analyses = 0
         st.session_state.comparison_quote = None
-        st.session_state.room_image = None
+        st.session_state.room_image       = None
         st.session_state.room_image_style = None
 
     # ── サイドバー：マスター認証 ──────────────────────────────
@@ -283,7 +302,7 @@ def main():
     st.caption("リフォームシミュレーター — 業者見積りの概算チェックツール")
     st.divider()
 
-    # ── STEP 1: 間取り図アップロード ─────────────────────────
+    # ── STEP 1: 間取り図のアップロード ───────────────────────
     st.subheader("STEP 1　間取り図のアップロード")
 
     st.markdown("""
@@ -311,23 +330,21 @@ def main():
             errors="raise",
         )
         if uploaded is not None:
-            st.session_state.floor_plan = uploaded
+            st.session_state.floor_plan      = uploaded
             st.session_state.floor_plan_name = uploaded.name
             st.rerun()
         if paste_result.image_data is not None:
-            st.session_state.floor_plan = paste_result.image_data
+            st.session_state.floor_plan      = paste_result.image_data
             st.session_state.floor_plan_name = "クリップボードから貼り付け"
             st.rerun()
-        st.caption("間取り図をアップロードすると解析ボタンが表示されます。")
-
+        st.caption("間取り図をアップロードするとSTEP 2の解析ボタンが表示されます。")
     else:
-        # プレビュー＋削除
         col_msg, col_btn = st.columns([5, 1])
         with col_msg:
             st.success(f"アップロード完了：{st.session_state.floor_plan_name}")
         with col_btn:
             if st.button("削除", use_container_width=True):
-                st.session_state.floor_plan = None
+                st.session_state.floor_plan      = None
                 st.session_state.floor_plan_name = None
                 st.session_state.analysis_result = None
                 st.rerun()
@@ -335,61 +352,70 @@ def main():
         is_pdf = hasattr(st.session_state.floor_plan, 'type') and \
                  st.session_state.floor_plan.type == 'application/pdf'
         if is_pdf:
-            st.info("PDF：解析ボタンで直接読み取ります。")
+            st.info("PDF：STEP 2の解析ボタンで直接読み取ります。")
         else:
             st.image(st.session_state.floor_plan, use_column_width=True)
 
-        # 解析ボタン / 結果表示
-        if st.session_state.analysis_result is None:
-            can_analyze = st.session_state.is_master or \
-                          st.session_state.session_analyses < GUEST_SESSION_LIMIT
+    st.divider()
 
-            if can_analyze:
-                if st.button("間取りを解析する", type="primary"):
-                    with st.spinner("解析中..."):
-                        try:
-                            result = analyze_floor_plan(st.session_state.floor_plan)
-                            st.session_state.analysis_result = result
-                            if not st.session_state.is_master:
-                                st.session_state.session_analyses += 1
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"解析エラー：{e}")
-            else:
-                st.warning(
-                    f"ゲストの解析は1セッション {GUEST_SESSION_LIMIT} 回までです。"
-                )
+    # ── STEP 2: 間取り解析 ───────────────────────────────────
+    st.subheader("STEP 2　間取りを解析する")
+
+    if st.session_state.floor_plan is None:
+        st.caption("STEP 1 で間取り図をアップロードしてください。")
+    elif st.session_state.analysis_result is None:
+        can_analyze = st.session_state.is_master or \
+                      st.session_state.session_analyses < GUEST_SESSION_LIMIT
+        if can_analyze:
+            if st.button("間取りを解析する", type="primary"):
+                with st.spinner("解析中..."):
+                    try:
+                        result = analyze_floor_plan(st.session_state.floor_plan)
+                        st.session_state.analysis_result = result
+                        if not st.session_state.is_master:
+                            st.session_state.session_analyses += 1
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"解析エラー：{e}")
         else:
-            result = st.session_state.analysis_result
-            rooms_str = "・".join(result.get('rooms', []))
-            st.info(f"解析結果：**{result.get('madori', '不明')}**　（{rooms_str}）")
-            if result.get('notes'):
-                st.caption(result['notes'])
-            if st.button("再解析する"):
-                st.session_state.analysis_result = None
-                st.rerun()
+            st.warning(f"ゲストの解析は1セッション {GUEST_SESSION_LIMIT} 回までです。")
+    else:
+        result = st.session_state.analysis_result
+        rooms_str = "・".join(result.get('rooms', []))
+        st.info(f"解析結果：**{result.get('madori', '不明')}**　（{rooms_str}）")
+        if result.get('notes'):
+            st.caption(result['notes'])
+        if st.button("再解析する"):
+            st.session_state.analysis_result = None
+            st.rerun()
 
     st.divider()
 
-    # ── STEP 2: 物件情報の入力 ────────────────────────────────
-    st.subheader("STEP 2　物件情報の入力")
+    # ── STEP 3: 物件情報の入力 ───────────────────────────────
+    st.subheader("STEP 3　物件情報の入力")
 
     detected = (st.session_state.analysis_result or {}).get('madori', '').upper()
     default_idx = MADORI_LIST.index(detected) if detected in MADORI_LIST else 6
 
     col1, col2 = st.columns(2)
     with col1:
+        age = st.selectbox("築年数", AGE_OPTIONS)
+    with col2:
+        structure = st.selectbox("構造", STRUCT_OPTIONS)
+
+    col3, col4 = st.columns(2)
+    with col3:
         area = st.number_input("専有面積（㎡）", min_value=10.0, max_value=200.0,
                                value=25.0, step=0.5)
-    with col2:
+    with col4:
         label = "間取り（解析結果から自動入力）" if detected in MADORI_LIST else "間取り"
         madori = st.selectbox(label, MADORI_LIST, index=default_idx)
 
     st.caption(f"壁面積概算：{area * WALL_AREA_FACTOR:.1f}㎡　/　床面積：{area}㎡")
     st.divider()
 
-    # ── STEP 3: パターン選択 ──────────────────────────────────
-    st.subheader("STEP 3　リフォームパターンの選択")
+    # ── STEP 4: リフォームパターンの選択 ────────────────────
+    st.subheader("STEP 4　リフォームパターンの選択")
 
     pattern_labels = {
         'A': 'A：必須（原状回復）',
@@ -425,7 +451,6 @@ def main():
 
     st.divider()
 
-    # ── 結果 ──────────────────────────────────────────────────
     if not selected:
         st.info("項目を選択してください。")
         return
@@ -437,64 +462,64 @@ def main():
     st.markdown(html_table, unsafe_allow_html=True)
     st.divider()
 
-    # ── リフォームイメージ生成 ────────────────────────────────
-    st.subheader("リフォームイメージを生成する")
-    st.caption("AIがリフォーム後のお部屋イメージを生成します。広さや雰囲気の参考にどうぞ。")
-
-    style_choice = st.radio(
-        "スタイルを選ぶ",
-        list(IMAGE_STYLES.keys()),
-        horizontal=True,
-        label_visibility="collapsed",
-    )
-
-    if st.button("イメージ画像を生成", key="gen_image"):
-        prompt = (
-            f"Japanese {madori} apartment interior room, {area:.0f} sqm, "
-            f"after renovation, {IMAGE_STYLES[style_choice]}, "
-            "interior design photography, realistic, 4k quality, no people, no text"
-        )
-        with st.spinner("生成中...（15〜30秒かかる場合があります）"):
-            try:
-                url = (
-                    "https://image.pollinations.ai/prompt/"
-                    + urllib.parse.quote(prompt)
-                )
-                resp = requests.get(url, timeout=90)
-                resp.raise_for_status()
-                st.session_state.room_image = resp.content
-                st.session_state.room_image_style = style_choice
-            except Exception as e:
-                st.error(f"画像の生成に失敗しました：{e}")
-
-    if st.session_state.room_image:
-        st.image(
-            st.session_state.room_image,
-            caption=f"リフォームイメージ：{st.session_state.room_image_style}スタイル",
-            use_column_width=True,
-        )
-        st.caption("※AIによるイメージ画像です。実際の仕上がりとは異なります。")
+    # ── 業者見積り入力 ────────────────────────────────────────
+    st.write("**業者見積り金額（円）**")
+    quote = st.number_input("業者見積り", min_value=0, value=0, step=10000,
+                            label_visibility="collapsed")
 
     st.divider()
 
-    # ── STEP 4: 業者見積りと比較する ─────────────────────────
-    st.subheader("STEP 4　業者見積りと比較する")
+    # ── リフォームスタイルの選択 ──────────────────────────────
+    st.write("**リフォームスタイルを選ぶ**")
 
-    quote = st.number_input("業者見積り金額（円）", min_value=0, value=0, step=10000)
+    # カラースウォッチ
+    swatch_cols = st.columns(4)
+    for col, (name, info) in zip(swatch_cols, IMAGE_STYLES.items()):
+        with col:
+            st.markdown(
+                f'<div style="background:{info["bg"]};height:64px;border-radius:8px;'
+                f'display:flex;flex-direction:column;align-items:center;justify-content:center;'
+                f'color:{info["fg"]};font-weight:bold;font-size:14px;gap:4px;">'
+                f'{name}'
+                f'<span style="font-size:10px;font-weight:normal;">{info["desc"]}</span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+    style_choice = st.radio(
+        "スタイル選択", list(IMAGE_STYLES.keys()),
+        horizontal=True, label_visibility="collapsed",
+    )
+
+    st.divider()
+
+    # ── フィードバック ────────────────────────────────────────
     feedback = st.text_area(
         "フィードバック（任意）",
         placeholder="欲しい機能・追加してほしい項目・気になった点など、何でもどうぞ",
         height=80,
     )
 
-    if quote > 0:
+    # ── 比較ボタン ────────────────────────────────────────────
+    if quote == 0:
+        st.caption("業者から見積りを取ったら金額を入力してください。")
+    else:
         if st.button("比較する", type="primary"):
-            save_log(area, madori, pattern_choice, total, quote, note=feedback)
+            with st.spinner("リフォームイメージを生成中...（30秒ほどかかる場合があります）"):
+                try:
+                    img_bytes = generate_room_image(madori, area, style_choice)
+                    st.session_state.room_image       = img_bytes
+                    st.session_state.room_image_style = style_choice
+                except Exception as e:
+                    st.session_state.room_image = None
+                    st.warning(f"画像生成に失敗しました（{e}）")
+            save_log(area, madori, age, structure, pattern_choice, total, quote, note=feedback)
             st.session_state.comparison_quote = quote
 
+        # ── 結果出力 ─────────────────────────────────────────
         if st.session_state.comparison_quote == quote:
             ratio = quote / total * 100
-            diff = abs(ratio - 100)
+            diff  = abs(ratio - 100)
             if ratio >= 130:
                 st.error(f"要確認（概算より{diff:.0f}%高い）　概算比：{ratio:.0f}%")
             elif ratio >= 110:
@@ -503,8 +528,30 @@ def main():
                 st.success(f"割安（概算より{diff:.0f}%低い）　概算比：{ratio:.0f}%")
             else:
                 st.success(f"概ね適正　概算比：{ratio:.0f}%")
-    else:
-        st.caption("業者から見積りを取ったら入力してください。")
+
+            # Before / After
+            st.divider()
+            st.write("**Before / After**")
+            col_b, col_a = st.columns(2)
+            with col_b:
+                st.write("**Before**")
+                fp = st.session_state.floor_plan
+                if fp is not None:
+                    is_pdf = hasattr(fp, 'type') and fp.type == 'application/pdf'
+                    if not is_pdf:
+                        st.image(fp, use_column_width=True)
+                    else:
+                        st.info("PDF間取り図")
+                else:
+                    st.info("間取り図なし")
+            with col_a:
+                st.write(f"**After（{st.session_state.room_image_style}）**")
+                if st.session_state.room_image:
+                    st.image(st.session_state.room_image, use_column_width=True)
+                else:
+                    st.info("画像生成失敗")
+
+            st.caption("※Afterはイメージ画像です。実際の仕上がりとは異なります。")
 
 
 if __name__ == '__main__':
