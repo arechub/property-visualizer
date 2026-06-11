@@ -1,4 +1,4 @@
-"""PropertyVisualizer - リフォームシミュレーター（Streamlit版）v0.8"""
+"""PropertyVisualizer - リフォームシミュレーター（Streamlit版）v0.9"""
 
 import base64
 import csv
@@ -245,6 +245,7 @@ def main():
         st.session_state.analysis_result = None
         st.session_state.is_master = False
         st.session_state.session_analyses = 0
+        st.session_state.comparison_quote = None
 
     # ── サイドバー：マスター認証 ──────────────────────────────
     with st.sidebar:
@@ -424,36 +425,34 @@ def main():
     st.markdown(html_table, unsafe_allow_html=True)
     st.divider()
 
-    # ── 業者見積り比較（必須） ─────────────────────────────────
-    st.write("**業者見積りと比較する**")
-    st.caption("実際の業者見積りを入力してください。データ蓄積によりシミュレーター精度が向上します。")
+    # ── STEP 4: 業者見積りと比較する ─────────────────────────
+    st.subheader("STEP 4　業者見積りと比較する")
+
     quote = st.number_input("業者見積り金額（円）", min_value=0, value=0, step=10000)
+    feedback = st.text_area(
+        "フィードバック（任意）",
+        placeholder="欲しい機能・追加してほしい項目・気になった点など、何でもどうぞ",
+        height=80,
+    )
 
     if quote > 0:
-        ratio = quote / total * 100
-        diff = abs(ratio - 100)
-        if ratio >= 130:
-            st.error(f"要確認（概算より{diff:.0f}%高い）　概算比：{ratio:.0f}%")
-        elif ratio >= 110:
-            st.warning(f"やや高め　概算比：{ratio:.0f}%")
-        elif ratio <= 70:
-            st.success(f"割安（概算より{diff:.0f}%低い）　概算比：{ratio:.0f}%")
-        else:
-            st.success(f"概ね適正　概算比：{ratio:.0f}%")
-
-    st.divider()
-
-    # ── フィードバック ────────────────────────────────────────
-    st.write("**フィードバック**")
-    st.caption("欲しい機能・項目の追加要望・気になった点など、何でもお書きください。今後のブラッシュアップに活用します。")
-    feedback = st.text_area("コメント（任意）", placeholder="例：〇〇の項目も欲しい / △△が使いにくかった など", height=100)
-
-    if quote == 0:
-        st.info("業者見積り金額を入力するとログを保存できます。")
-    else:
-        if st.button("ログに保存", type="primary"):
+        if st.button("比較する", type="primary"):
             save_log(area, madori, pattern_choice, total, quote, note=feedback)
-            st.success("ログを保存しました。")
+            st.session_state.comparison_quote = quote
+
+        if st.session_state.comparison_quote == quote:
+            ratio = quote / total * 100
+            diff = abs(ratio - 100)
+            if ratio >= 130:
+                st.error(f"要確認（概算より{diff:.0f}%高い）　概算比：{ratio:.0f}%")
+            elif ratio >= 110:
+                st.warning(f"やや高め　概算比：{ratio:.0f}%")
+            elif ratio <= 70:
+                st.success(f"割安（概算より{diff:.0f}%低い）　概算比：{ratio:.0f}%")
+            else:
+                st.success(f"概ね適正　概算比：{ratio:.0f}%")
+    else:
+        st.caption("業者から見積りを取ったら入力してください。")
 
 
 if __name__ == '__main__':
