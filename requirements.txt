@@ -3,3 +3,4 @@ anthropic
 python-dotenv
 pandas
 streamlit-paste-button
+requests

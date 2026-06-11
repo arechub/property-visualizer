@@ -1,12 +1,15 @@
-"""PropertyVisualizer - リフォームシミュレーター（Streamlit版）v0.9"""
+"""PropertyVisualizer - リフォームシミュレーター（Streamlit版）v1.0"""
 
 import base64
 import csv
 import io
 import json
 import os
+import urllib.parse
 from datetime import date
 from pathlib import Path
+
+import requests
 
 import anthropic
 import pandas as pd
@@ -47,6 +50,13 @@ PATTERN_DESC = {
 }
 
 MADORI_LIST = ['1R', '1K', '1DK', '1LDK', '2K', '2DK', '2LDK', '3DK', '3LDK', '4LDK']
+
+IMAGE_STYLES = {
+    'シック':     'sophisticated, dark slate walls, dark wood flooring, moody lighting, minimal black furniture',
+    '明るく':    'bright and airy, white walls, light oak flooring, large windows, cheerful natural light',
+    'ナチュラル': 'natural wood, indoor plants, warm beige tones, linen textures, Japandi style',
+    'モダン':    'modern contemporary, concrete finish, steel accents, clean lines, monochrome palette',
+}
 
 SCRIPT_DIR = Path(__file__).parent
 CSV_PATH = SCRIPT_DIR / '20260612_master_prices.csv'
@@ -246,6 +256,8 @@ def main():
         st.session_state.is_master = False
         st.session_state.session_analyses = 0
         st.session_state.comparison_quote = None
+        st.session_state.room_image = None
+        st.session_state.room_image_style = None
 
     # ── サイドバー：マスター認証 ──────────────────────────────
     with st.sidebar:
@@ -423,6 +435,47 @@ def main():
 
     st.subheader(f"概算合計：¥{total:,}")
     st.markdown(html_table, unsafe_allow_html=True)
+    st.divider()
+
+    # ── リフォームイメージ生成 ────────────────────────────────
+    st.subheader("リフォームイメージを生成する")
+    st.caption("AIがリフォーム後のお部屋イメージを生成します。広さや雰囲気の参考にどうぞ。")
+
+    style_choice = st.radio(
+        "スタイルを選ぶ",
+        list(IMAGE_STYLES.keys()),
+        horizontal=True,
+        label_visibility="collapsed",
+    )
+
+    if st.button("イメージ画像を生成", key="gen_image"):
+        prompt = (
+            f"Japanese {madori} apartment interior room, {area:.0f} sqm, "
+            f"after renovation, {IMAGE_STYLES[style_choice]}, "
+            "interior design photography, realistic, 4k quality, no people, no text"
+        )
+        with st.spinner("生成中...（15〜30秒かかる場合があります）"):
+            try:
+                url = (
+                    "https://image.pollinations.ai/prompt/"
+                    + urllib.parse.quote(prompt)
+                    + "?width=1024&height=768&nologo=true"
+                )
+                resp = requests.get(url, timeout=90)
+                resp.raise_for_status()
+                st.session_state.room_image = resp.content
+                st.session_state.room_image_style = style_choice
+            except Exception as e:
+                st.error(f"画像の生成に失敗しました：{e}")
+
+    if st.session_state.room_image:
+        st.image(
+            st.session_state.room_image,
+            caption=f"リフォームイメージ：{st.session_state.room_image_style}スタイル",
+            use_column_width=True,
+        )
+        st.caption("※AIによるイメージ画像です。実際の仕上がりとは異なります。")
+
     st.divider()
 
     # ── STEP 4: 業者見積りと比較する ─────────────────────────
