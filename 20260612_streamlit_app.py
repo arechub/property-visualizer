@@ -459,7 +459,6 @@ def main():
                 url = (
                     "https://image.pollinations.ai/prompt/"
                     + urllib.parse.quote(prompt)
-                    + "?width=1024&height=768&nologo=true"
                 )
                 resp = requests.get(url, timeout=90)
                 resp.raise_for_status()
