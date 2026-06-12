@@ -316,6 +316,26 @@ def main():
                     st.error("パスワードが違います")
 
     # ── ヘッダー ──────────────────────────────────────────────
+    # フッターを常にビューポート最下部に固定
+    st.markdown(
+        f"""
+        <style>
+        .pv-footer {{
+            position: fixed; bottom: 0; left: 0; right: 0;
+            background: white; border-top: 1px solid #e0e0e0;
+            padding: 6px 16px; text-align: center;
+            font-size: 12px; color: #aaa; z-index: 9999;
+        }}
+        /* フッター分のスペースを確保 */
+        .main .block-container {{ padding-bottom: 48px; }}
+        </style>
+        <div class="pv-footer">
+            &copy; 2026 AReC LLC. All rights reserved. &nbsp;|&nbsp; {APP_VERSION}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
     st.markdown(
         f'<h1 style="margin-bottom:0;">Property Visualizer '
         f'<span style="font-size:14px;font-weight:normal;color:#888;">{APP_VERSION}</span></h1>',
@@ -631,14 +651,6 @@ def main():
                         st.rerun()
 
 
-    # ── コピーライト ──────────────────────────────────────────
-    st.divider()
-    st.markdown(
-        '<p style="text-align:center;color:#aaa;font-size:12px;">'
-        f'&copy; 2026 AReC LLC. All rights reserved. &nbsp;|&nbsp; {APP_VERSION}'
-        '</p>',
-        unsafe_allow_html=True,
-    )
 
 
 if __name__ == '__main__':
