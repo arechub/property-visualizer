@@ -1,6 +1,6 @@
 """PropertyVisualizer - リフォームシミュレーター（Streamlit版）v1.7"""
 
-APP_VERSION = "v2.0"
+APP_VERSION = "v2.1"
 
 import base64
 import csv
@@ -55,6 +55,30 @@ AGE_OPTIONS   = [
     '築20〜25年', '築25〜30年', '築30〜40年', '築40年以上',
 ]
 STRUCT_OPTIONS = ['RC造（鉄筋コンクリート）', '木造', '軽量鉄骨造', '重量鉄骨造']
+
+# 経年加算係数（実績データ蓄積後に apply_price_adjustment() で段階的に補正）
+AGE_MULTIPLIERS = {
+    '築5年未満':  1.00,
+    '築5〜10年':  1.05,
+    '築10〜15年': 1.08,
+    '築15〜20年': 1.10,
+    '築20〜25年': 1.15,
+    '築25〜30年': 1.20,
+    '築30〜40年': 1.25,
+    '築40年以上': 1.30,
+}
+
+# 画像生成プロンプト用の築年数英語表現
+AGE_PROMPT_DESC = {
+    '築5年未満':  'nearly new building',
+    '築5〜10年':  '5-10 year old building',
+    '築10〜15年': '10-15 year old building',
+    '築15〜20年': '15-20 year old building',
+    '築20〜25年': '20-25 year old building',
+    '築25〜30年': '25-30 year old building',
+    '築30〜40年': '30-40 year old building with visible aging',
+    '築40年以上': 'over 40 year old building, heavily aged interior',
+}
 
 IMAGE_STYLES = {
     'シック': {
@@ -197,7 +221,7 @@ def analyze_floor_plan(image):
 # ── After画像生成 ────────────────────────────────────────────
 # HUGGING_FACE_PRO=true のとき: FLUX.1-Kontext（img2img・構造保持）
 # それ以外              : Claude Vision解析 → FLUX.1-schnell（無料）
-def generate_after_image(photo_file, style_key):
+def generate_after_image(photo_file, style_key, age=''):
     token   = os.environ.get("HUGGING_FACE_TOKEN")
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     is_pro  = os.environ.get("HUGGING_FACE_PRO", "").lower() == "true"
@@ -251,8 +275,11 @@ def generate_after_image(photo_file, style_key):
             ]}],
         )
         room_structure = vision_resp.content[0].text.strip()
+        age_desc = AGE_PROMPT_DESC.get(age, '')
+        age_context = f"renovated from a {age_desc}, " if age_desc else ""
         prompt = (
             f"photorealistic interior photo, Japanese apartment after renovation, "
+            f"{age_context}"
             f"room structure: {room_structure}, "
             f"renovation: {style_prompt}, "
             "professional architectural photography, 8k, sharp focus, "
@@ -721,7 +748,9 @@ def main():
         return
 
     results = calculate(area, madori, selected)
-    html_table, total = build_html_table(results)
+    html_table, base_total = build_html_table(results)
+    age_mult     = AGE_MULTIPLIERS.get(age, 1.0)
+    total        = round(base_total * age_mult)
 
     # スタイル選択
     st.divider()
@@ -790,6 +819,18 @@ def main():
             # 概算テーブル
             st.divider()
             st.markdown(html_table, unsafe_allow_html=True)
+
+            # 経年加算の内訳表示
+            if age_mult != 1.0:
+                add_amount = total - base_total
+                pct = int((age_mult - 1) * 100)
+                st.markdown(
+                    f"<div style='text-align:right;font-size:14px;color:#666;padding:4px 0;'>"
+                    f"基本概算 ¥{base_total:,} ＋ 経年加算（{age}：+{pct}%）¥{add_amount:,}"
+                    f"　→　<b style='font-size:16px;color:#333;'>経年加算後概算 ¥{total:,}</b>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
 
             # 比較結果
             st.divider()
@@ -868,7 +909,7 @@ def main():
                         with st.spinner("Afterイメージを生成中...（1〜2分かかる場合があります）"):
                             try:
                                 img_bytes = generate_after_image(
-                                    st.session_state.property_photo, style_choice)
+                                    st.session_state.property_photo, style_choice, age)
                                 st.session_state.room_image       = img_bytes
                                 st.session_state.room_image_style = style_choice
                                 st.rerun()
