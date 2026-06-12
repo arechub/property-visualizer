@@ -1,6 +1,6 @@
 """PropertyVisualizer - リフォームシミュレーター（Streamlit版）v1.7"""
 
-APP_VERSION = "v1.7"
+APP_VERSION = "v1.9"
 
 import base64
 import csv
@@ -738,9 +738,10 @@ def main():
             st.session_state.room_image_style = None
             st.session_state.property_photo      = None
             st.session_state.property_photo_name = None
-            log_date = quote_date.isoformat() if quote_date else None
-            save_log(area, madori, age, structure, pattern_choice, total, quote,
-                     log_date=log_date)
+            if not st.session_state.is_master:  # マスターモードはログ非蓄積
+                log_date = quote_date.isoformat() if quote_date else None
+                save_log(area, madori, age, structure, pattern_choice, total, quote,
+                         log_date=log_date)
             st.session_state.simulation_triggered = True
             st.session_state.comparison_quote = quote
 
@@ -782,7 +783,7 @@ def main():
                     height=80,
                 )
                 if st.button("フィードバックを送る"):
-                    if fb_text:
+                    if fb_text and not st.session_state.is_master:  # マスターモードはログ非蓄積
                         save_log(area, madori, age, structure, pattern_choice,
                                  total, quote, note=fb_text)
                     st.session_state.feedback_sent = True
