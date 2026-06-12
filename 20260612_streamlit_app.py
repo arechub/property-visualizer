@@ -151,51 +151,32 @@ def analyze_floor_plan(image):
     return json.loads(text)
 
 
-# ── After画像生成（Claude Vision で部屋特徴を読み取り → FLUX生成） ──
+# ── After画像生成（FLUX.1-Kontext: 同じ部屋の仕上げだけ変換） ──
 def generate_after_image(photo_file, style_key):
-    token   = os.environ.get("HUGGING_FACE_TOKEN")
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    token = os.environ.get("HUGGING_FACE_TOKEN")
     if not token:
         raise ValueError("HUGGING_FACE_TOKEN が設定されていません。")
 
-    # Before写真をバイト列で取得
     photo_bytes = photo_file.read()
     photo_file.seek(0)
-    media_type = getattr(photo_file, 'type', 'image/jpeg')
-    if media_type not in ('image/png', 'image/jpeg', 'image/gif', 'image/webp'):
-        media_type = 'image/jpeg'
+    pil_image = PILImage.open(io.BytesIO(photo_bytes)).convert("RGB")
 
-    # Claude Vision で部屋の特徴を抽出
-    vision_model = os.environ.get("MADORI_MODEL", "claude-haiku-4-5-20251001")
-    ai_client = anthropic.Anthropic(api_key=api_key)
-    vision_resp = ai_client.messages.create(
-        model=vision_model, max_tokens=128,
-        messages=[{"role": "user", "content": [
-            {"type": "image", "source": {
-                "type": "base64", "media_type": media_type,
-                "data": base64.standard_b64encode(photo_bytes).decode('utf-8'),
-            }},
-            {"type": "text", "text": (
-                "Describe this Japanese apartment room in one short sentence. "
-                "Focus on: room type, layout, flooring, walls, windows. "
-                "English only, no Japanese, under 30 words."
-            )},
-        ]}],
-    )
-    room_desc = vision_resp.content[0].text.strip()
-
-    # FLUX でリノベ後イメージを生成
     style_prompt = IMAGE_STYLES[style_key]['prompt']
-    prompt = (
-        f"photorealistic interior photo, Japanese apartment, after full renovation, "
-        f"original room: {room_desc}, {style_prompt}, "
-        "professional architectural photography, natural lighting, 8k, "
-        "shot on Canon EOS R5, sharp focus, no people, no text, no watermark"
+    instruction = (
+        f"Keep the exact same room layout, camera angle, ceiling height, window positions, "
+        f"and room shape. Renovate only the surface finishes: {style_prompt}. "
+        "Replace kitchen cabinets and countertop, replace flooring, repaint walls. "
+        "Do NOT change the architecture, ceiling height, or room structure."
     )
-    hf_client = InferenceClient(token=token)
-    image = hf_client.text_to_image(prompt, model="black-forest-labs/FLUX.1-schnell")
+
+    client = InferenceClient(token=token)
+    result = client.image_to_image(
+        pil_image,
+        prompt=instruction,
+        model="black-forest-labs/FLUX.1-Kontext-dev",
+    )
     buf = io.BytesIO()
-    image.save(buf, format="PNG")
+    result.save(buf, format="PNG")
     return buf.getvalue()
 
 
