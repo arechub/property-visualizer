@@ -55,22 +55,42 @@ STRUCT_OPTIONS = ['RC造（鉄筋コンクリート）', '木造', '軽量鉄骨
 
 IMAGE_STYLES = {
     'シック': {
-        'prompt': 'sophisticated, dark slate walls, dark wood flooring, moody lighting, minimal black furniture',
+        'prompt': (
+            'replace all cabinet fronts with matte black cabinet doors, '
+            'replace flooring with dark charcoal wood planks, '
+            'paint walls dark slate gray, replace backsplash with black stone tiles, '
+            'add under-cabinet LED lighting, moody dramatic atmosphere'
+        ),
         'bg': '#3d3d3d', 'fg': 'white', 'desc': 'ダーク&ラグジュアリー',
         'photo': 'photos/20260612_style_chic.png',
     },
     '明るく': {
-        'prompt': 'bright and airy, white walls, light oak flooring, large windows, cheerful natural light',
+        'prompt': (
+            'replace all cabinet fronts with glossy white cabinet doors, '
+            'replace flooring with pale birch wood planks, '
+            'paint walls pure white, replace backsplash with white subway tiles, '
+            'add bright ceiling lights, cheerful open airy atmosphere'
+        ),
         'bg': '#fff3cd', 'fg': '#555', 'desc': '白基調・開放感',
         'photo': 'photos/20260612_style_bright.png',
     },
     'ナチュラル': {
-        'prompt': 'natural wood, indoor plants, warm beige tones, linen textures, Japandi style',
+        'prompt': (
+            'replace all cabinet fronts with light oak wood cabinet doors, '
+            'replace flooring with warm honey-toned wood planks, '
+            'paint walls warm cream beige, replace backsplash with beige textured tiles, '
+            'add small potted plants on counter, warm soft lighting, Japandi minimalist'
+        ),
         'bg': '#c8e6c9', 'fg': '#2e4a2e', 'desc': '木材・植物・温もり',
         'photo': 'photos/20260612_style_natural.png',
     },
     'モダン': {
-        'prompt': 'modern contemporary, concrete finish, steel accents, clean lines, monochrome palette',
+        'prompt': (
+            'replace all cabinet fronts with dark brown wood-grain cabinet doors, '
+            'replace flooring with gray concrete-look tiles, '
+            'paint walls light gray, replace backsplash with large format gray tiles, '
+            'add stainless steel fixtures, sleek minimalist contemporary'
+        ),
         'bg': '#9e9e9e', 'fg': 'white', 'desc': 'コンクリート調・スタイリッシュ',
         'photo': 'photos/20260612_style_modern.png',
     },
@@ -163,10 +183,10 @@ def generate_after_image(photo_file, style_key):
 
     style_prompt = IMAGE_STYLES[style_key]['prompt']
     instruction = (
-        f"Keep the exact same room layout, camera angle, ceiling height, window positions, "
-        f"and room shape. Renovate only the surface finishes: {style_prompt}. "
-        "Replace kitchen cabinets and countertop, replace flooring, repaint walls. "
-        "Do NOT change the architecture, ceiling height, or room structure."
+        f"Complete renovation of this room: {style_prompt}. "
+        "Keep the exact same camera angle, room layout, ceiling height, window positions, and door positions. "
+        "Do NOT change the architecture or room structure. "
+        "The result must look clearly different from the original."
     )
 
     client = InferenceClient(token=token)
