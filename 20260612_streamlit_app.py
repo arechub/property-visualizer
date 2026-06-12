@@ -14,6 +14,7 @@ import requests
 import streamlit as st
 from dotenv import load_dotenv
 from huggingface_hub import InferenceClient
+from PIL import Image as PILImage
 from streamlit_paste_button import paste_image_button as pbutton
 
 # ── 使用制限（ここを変更するだけで上限を調整可） ───────────
@@ -148,23 +149,31 @@ def analyze_floor_plan(image):
     return json.loads(text)
 
 
-# ── 画像生成（HuggingFace） ───────────────────────────────────
-def generate_room_image(madori, area, style_key):
+# ── After画像生成（img2img: Before写真を元に変換） ────────────
+def generate_after_image(photo_file, style_key):
     token = os.environ.get("HUGGING_FACE_TOKEN")
     if not token:
         raise ValueError("HUGGING_FACE_TOKEN が設定されていません。")
 
+    photo_bytes = photo_file.read()
+    photo_file.seek(0)
+    pil_image = PILImage.open(io.BytesIO(photo_bytes)).convert("RGB")
+
     style_prompt = IMAGE_STYLES[style_key]['prompt']
-    prompt = (
-        f"photorealistic interior photo, Japanese {madori} apartment, {area:.0f} sqm, "
-        f"after full renovation, {style_prompt}, "
-        "professional architectural photography, natural lighting, 8k, "
-        "shot on Canon EOS R5, sharp focus, no people, no text, no watermark"
+    instruction = (
+        f"renovate this Japanese apartment room: {style_prompt}, "
+        "professional interior renovation, new flooring, clean walls, modern fixtures, "
+        "high quality realistic photo, bright lighting"
     )
+
     client = InferenceClient(token=token)
-    image = client.text_to_image(prompt, model="black-forest-labs/FLUX.1-schnell")
+    result = client.image_to_image(
+        pil_image,
+        prompt=instruction,
+        model="timbrooks/instruct-pix2pix",
+    )
     buf = io.BytesIO()
-    image.save(buf, format="PNG")
+    result.save(buf, format="PNG")
     return buf.getvalue()
 
 
@@ -590,9 +599,10 @@ def main():
                 if st.session_state.room_image is None:
                     if st.button("この写真でAfterイメージを生成する", type="primary",
                                  key="gen_after"):
-                        with st.spinner("Afterイメージを生成中...（30秒ほどかかります）"):
+                        with st.spinner("Afterイメージを生成中...（1〜2分かかる場合があります）"):
                             try:
-                                img_bytes = generate_room_image(madori, area, style_choice)
+                                img_bytes = generate_after_image(
+                                    st.session_state.property_photo, style_choice)
                                 st.session_state.room_image       = img_bytes
                                 st.session_state.room_image_style = style_choice
                                 st.rerun()
