@@ -394,54 +394,33 @@ def main():
 
     st.divider()
 
-    # ── 物件写真のアップロード（任意） ────────────────────────
-    st.subheader("物件写真（任意）")
-    st.caption("お部屋の写真があれば、Beforeイメージとして使用します。")
-
-    if st.session_state.property_photo is None:
-        prop_photo = st.file_uploader(
-            "お部屋の写真をアップロード（PNG / JPG）",
-            type=['png', 'jpg', 'jpeg'],
-            key="prop_photo_uploader",
-        )
-        if prop_photo is not None:
-            st.session_state.property_photo      = prop_photo
-            st.session_state.property_photo_name = prop_photo.name
-            st.rerun()
-    else:
-        col_pm, col_pb = st.columns([5, 1])
-        with col_pm:
-            st.success(f"写真アップロード完了：{st.session_state.property_photo_name}")
-        with col_pb:
-            if st.button("削除", key="del_prop_photo", use_container_width=True):
-                st.session_state.property_photo      = None
-                st.session_state.property_photo_name = None
-                st.rerun()
-        st.image(st.session_state.property_photo, use_column_width=True)
-
-    st.divider()
-
     # ── STEP 3: 物件情報の入力 ───────────────────────────────
     st.subheader("STEP 3　物件情報の入力")
 
     detected = (st.session_state.analysis_result or {}).get('madori', '').upper()
-    default_idx = MADORI_LIST.index(detected) if detected in MADORI_LIST else 6
+    default_idx = MADORI_LIST.index(detected) if detected in MADORI_LIST else None
 
     col1, col2 = st.columns(2)
     with col1:
-        age = st.selectbox("築年数", AGE_OPTIONS)
+        age = st.selectbox("築年数", AGE_OPTIONS, index=None, placeholder="選択してください")
     with col2:
-        structure = st.selectbox("構造", STRUCT_OPTIONS)
+        structure = st.selectbox("構造", STRUCT_OPTIONS, index=None, placeholder="選択してください")
 
     col3, col4 = st.columns(2)
     with col3:
         area = st.number_input("専有面積（㎡）", min_value=10.0, max_value=200.0,
-                               value=25.0, step=0.5)
+                               value=None, step=0.5, placeholder="例：35.0")
     with col4:
         label = "間取り（解析結果から自動入力）" if detected in MADORI_LIST else "間取り"
-        madori = st.selectbox(label, MADORI_LIST, index=default_idx)
+        madori = st.selectbox(label, MADORI_LIST, index=default_idx, placeholder="選択してください")
 
-    st.caption(f"壁面積概算：{area * WALL_AREA_FACTOR:.1f}㎡　/　床面積：{area}㎡")
+    if area is not None:
+        st.caption(f"壁面積概算：{area * WALL_AREA_FACTOR:.1f}㎡　/　床面積：{area}㎡")
+
+    if any(v is None for v in [age, structure, area, madori]):
+        st.caption("すべての物件情報を入力するとSTEP 4が表示されます。")
+        return
+
     st.divider()
 
     # ── STEP 4: リフォームパターン＋スタイルの選択 ────────────
@@ -519,14 +498,10 @@ def main():
     else:
         if st.button("この条件でシミュレートする", type="primary"):
             st.session_state.feedback_sent = False
-            with st.spinner("シミュレーション中...（画像生成に30秒ほどかかります）"):
-                try:
-                    img_bytes = generate_room_image(madori, area, style_choice)
-                    st.session_state.room_image       = img_bytes
-                    st.session_state.room_image_style = style_choice
-                except Exception as e:
-                    st.session_state.room_image = None
-                    st.warning(f"画像生成に失敗しました（{e}）")
+            st.session_state.room_image       = None
+            st.session_state.room_image_style = None
+            st.session_state.property_photo      = None
+            st.session_state.property_photo_name = None
             save_log(area, madori, age, structure, pattern_choice, total, quote)
             st.session_state.simulation_triggered = True
             st.session_state.comparison_quote = quote
@@ -552,32 +527,11 @@ def main():
             else:
                 st.success(f"概ね適正　概算比：{ratio:.0f}%")
 
-            # Before / After
-            st.divider()
-            st.write("**Before / After**")
-            col_b, col_a = st.columns(2)
-            with col_b:
-                st.write("**Before**")
-                photo = st.session_state.property_photo
-                if photo is not None:
-                    st.image(photo, use_column_width=True)
-                else:
-                    fp = st.session_state.floor_plan
-                    if fp is not None:
-                        is_pdf = hasattr(fp, 'type') and fp.type == 'application/pdf'
-                        if not is_pdf:
-                            st.image(fp, use_column_width=True)
-                        else:
-                            st.caption("間取り図（PDF）")
-                    else:
-                        st.info("写真・間取り図なし")
-            with col_a:
-                st.write(f"**After（{st.session_state.room_image_style}）**")
-                if st.session_state.room_image:
-                    st.image(st.session_state.room_image, use_column_width=True)
-                else:
-                    st.info("画像生成失敗")
-            st.caption("※Afterはイメージ画像です。実際の仕上がりとは異なります。")
+            # 3D間取りビュー（プレースホルダー）
+            if st.session_state.floor_plan is not None:
+                st.divider()
+                st.write("**3D間取りビュー**")
+                st.info("🔧 近日実装予定 — 間取り図から3Dビューを自動生成する機能を開発中です。")
 
             # フィードバック
             st.divider()
@@ -597,6 +551,61 @@ def main():
                     st.rerun()
             else:
                 st.caption("✓ フィードバックを送信しました。ありがとうございます。")
+
+            # ── After イメージ（任意） ────────────────────────
+            st.divider()
+            st.subheader("After イメージ（任意）")
+            st.caption("物件写真をアップロードすると、選択したスタイルでリフォーム後のイメージ画像を作成します。")
+
+            if st.session_state.property_photo is None:
+                prop_photo = st.file_uploader(
+                    "物件写真をアップロード（PNG / JPG）",
+                    type=['png', 'jpg', 'jpeg'],
+                    key="prop_photo_uploader",
+                )
+                if prop_photo is not None:
+                    st.session_state.property_photo      = prop_photo
+                    st.session_state.property_photo_name = prop_photo.name
+                    st.rerun()
+            else:
+                col_pm, col_pb = st.columns([5, 1])
+                with col_pm:
+                    st.success(f"写真アップロード完了：{st.session_state.property_photo_name}")
+                with col_pb:
+                    if st.button("写真を削除", key="del_prop_photo", use_container_width=True):
+                        st.session_state.property_photo      = None
+                        st.session_state.property_photo_name = None
+                        st.session_state.room_image          = None
+                        st.session_state.room_image_style    = None
+                        st.rerun()
+                st.image(st.session_state.property_photo, use_column_width=True)
+
+                if st.session_state.room_image is None:
+                    if st.button("この写真でAfterイメージを生成する", type="primary",
+                                 key="gen_after"):
+                        with st.spinner("Afterイメージを生成中...（30秒ほどかかります）"):
+                            try:
+                                img_bytes = generate_room_image(madori, area, style_choice)
+                                st.session_state.room_image       = img_bytes
+                                st.session_state.room_image_style = style_choice
+                                st.rerun()
+                            except Exception as e:
+                                st.warning(f"画像生成に失敗しました（{e}）")
+                else:
+                    st.divider()
+                    st.write("**Before / After**")
+                    col_b, col_a = st.columns(2)
+                    with col_b:
+                        st.write("**Before**")
+                        st.image(st.session_state.property_photo, use_column_width=True)
+                    with col_a:
+                        st.write(f"**After（{st.session_state.room_image_style}）**")
+                        st.image(st.session_state.room_image, use_column_width=True)
+                    st.caption("※Afterはイメージ画像です。実際の仕上がりとは異なります。")
+                    if st.button("生成結果を削除", key="del_after"):
+                        st.session_state.room_image       = None
+                        st.session_state.room_image_style = None
+                        st.rerun()
 
 
 if __name__ == '__main__':
