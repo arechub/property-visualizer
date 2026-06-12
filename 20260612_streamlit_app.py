@@ -273,11 +273,13 @@ def main():
         st.session_state.analysis_result = None
         st.session_state.is_master       = False
         st.session_state.session_analyses = 0
-        st.session_state.comparison_quote    = None
-        st.session_state.room_image         = None
-        st.session_state.room_image_style   = None
-        st.session_state.feedback_sent      = False
+        st.session_state.comparison_quote     = None
+        st.session_state.room_image          = None
+        st.session_state.room_image_style    = None
+        st.session_state.feedback_sent       = False
         st.session_state.simulation_triggered = False
+        st.session_state.property_photo      = None
+        st.session_state.property_photo_name = None
 
     # ── サイドバー：マスター認証 ──────────────────────────────
     with st.sidebar:
@@ -392,6 +394,33 @@ def main():
 
     st.divider()
 
+    # ── 物件写真のアップロード（任意） ────────────────────────
+    st.subheader("物件写真（任意）")
+    st.caption("お部屋の写真があれば、Beforeイメージとして使用します。")
+
+    if st.session_state.property_photo is None:
+        prop_photo = st.file_uploader(
+            "お部屋の写真をアップロード（PNG / JPG）",
+            type=['png', 'jpg', 'jpeg'],
+            key="prop_photo_uploader",
+        )
+        if prop_photo is not None:
+            st.session_state.property_photo      = prop_photo
+            st.session_state.property_photo_name = prop_photo.name
+            st.rerun()
+    else:
+        col_pm, col_pb = st.columns([5, 1])
+        with col_pm:
+            st.success(f"写真アップロード完了：{st.session_state.property_photo_name}")
+        with col_pb:
+            if st.button("削除", key="del_prop_photo", use_container_width=True):
+                st.session_state.property_photo      = None
+                st.session_state.property_photo_name = None
+                st.rerun()
+        st.image(st.session_state.property_photo, use_column_width=True)
+
+    st.divider()
+
     # ── STEP 3: 物件情報の入力 ───────────────────────────────
     st.subheader("STEP 3　物件情報の入力")
 
@@ -415,8 +444,8 @@ def main():
     st.caption(f"壁面積概算：{area * WALL_AREA_FACTOR:.1f}㎡　/　床面積：{area}㎡")
     st.divider()
 
-    # ── STEP 4: リフォームパターンの選択 ────────────────────
-    st.subheader("STEP 4　リフォームパターンの選択")
+    # ── STEP 4: リフォームパターン＋スタイルの選択 ────────────
+    st.subheader("STEP 4　リフォームパターン＋スタイルの選択")
 
     pattern_labels = {
         'A': 'A：必須（原状回復）',
@@ -450,15 +479,6 @@ def main():
         tier = PATTERN_TIERS[pattern_choice]
         selected = [r for r in all_items if int(r['tier']) <= tier]
 
-    if st.button("この条件でシミュレートする", type="primary"):
-        st.session_state.simulation_triggered = True
-
-    st.divider()
-
-    if not st.session_state.simulation_triggered:
-        st.caption("物件情報とリフォームパターンを入力したら「シミュレートする」を押してください。")
-        return
-
     if not selected:
         st.info("項目を選択してください。")
         return
@@ -466,20 +486,9 @@ def main():
     results = calculate(area, madori, selected)
     html_table, total = build_html_table(results)
 
-    st.markdown(html_table, unsafe_allow_html=True)
+    # スタイル選択
     st.divider()
-
-    # ── 業者見積り入力 ────────────────────────────────────────
-    st.write("**業者見積り金額（円）**")
-    quote = st.number_input("業者見積り", min_value=0, value=0, step=10000,
-                            label_visibility="collapsed")
-
-    st.divider()
-
-    # ── リフォームスタイルの選択 ──────────────────────────────
     st.write("**リフォームスタイルを選ぶ**")
-
-    # カラースウォッチ
     swatch_cols = st.columns(4)
     for col, (name, info) in zip(swatch_cols, IMAGE_STYLES.items()):
         with col:
@@ -492,21 +501,25 @@ def main():
                 f'</div>',
                 unsafe_allow_html=True,
             )
-
     style_choice = st.radio(
         "スタイル選択", list(IMAGE_STYLES.keys()),
         horizontal=True, label_visibility="collapsed",
     )
 
+    # 業者見積り入力（必須）
     st.divider()
+    st.write("**業者見積り金額（円）**")
+    quote = st.number_input("業者見積り", min_value=0, value=0, step=10000,
+                            label_visibility="collapsed")
 
-    # ── 比較ボタン ────────────────────────────────────────────
+    # シミュレートボタン（見積り入力後に出現）
+    st.divider()
     if quote == 0:
-        st.caption("業者から見積りを取ったら金額を入力してください。")
+        st.info("業者見積り金額を入力すると「シミュレートする」ボタンが表示されます。")
     else:
-        if st.button("比較する", type="primary"):
+        if st.button("この条件でシミュレートする", type="primary"):
             st.session_state.feedback_sent = False
-            with st.spinner("リフォームイメージを生成中...（30秒ほどかかる場合があります）"):
+            with st.spinner("シミュレーション中...（画像生成に30秒ほどかかります）"):
                 try:
                     img_bytes = generate_room_image(madori, area, style_choice)
                     st.session_state.room_image       = img_bytes
@@ -515,10 +528,19 @@ def main():
                     st.session_state.room_image = None
                     st.warning(f"画像生成に失敗しました（{e}）")
             save_log(area, madori, age, structure, pattern_choice, total, quote)
+            st.session_state.simulation_triggered = True
             st.session_state.comparison_quote = quote
 
         # ── 結果出力 ─────────────────────────────────────────
-        if st.session_state.comparison_quote == quote:
+        if st.session_state.simulation_triggered and \
+                st.session_state.comparison_quote == quote:
+
+            # 概算テーブル
+            st.divider()
+            st.markdown(html_table, unsafe_allow_html=True)
+
+            # 比較結果
+            st.divider()
             ratio = quote / total * 100
             diff  = abs(ratio - 100)
             if ratio >= 130:
@@ -536,25 +558,28 @@ def main():
             col_b, col_a = st.columns(2)
             with col_b:
                 st.write("**Before**")
-                fp = st.session_state.floor_plan
-                if fp is not None:
-                    is_pdf = hasattr(fp, 'type') and fp.type == 'application/pdf'
-                    if not is_pdf:
-                        st.image(fp, use_column_width=True)
-                    else:
-                        st.info("PDF間取り図")
+                photo = st.session_state.property_photo
+                if photo is not None:
+                    st.image(photo, use_column_width=True)
                 else:
-                    st.info("間取り図なし")
+                    fp = st.session_state.floor_plan
+                    if fp is not None:
+                        is_pdf = hasattr(fp, 'type') and fp.type == 'application/pdf'
+                        if not is_pdf:
+                            st.image(fp, use_column_width=True)
+                        else:
+                            st.caption("間取り図（PDF）")
+                    else:
+                        st.info("写真・間取り図なし")
             with col_a:
                 st.write(f"**After（{st.session_state.room_image_style}）**")
                 if st.session_state.room_image:
                     st.image(st.session_state.room_image, use_column_width=True)
                 else:
                     st.info("画像生成失敗")
-
             st.caption("※Afterはイメージ画像です。実際の仕上がりとは異なります。")
 
-            # ── フィードバック（結果表示後） ──────────────────
+            # フィードバック
             st.divider()
             st.write("**フィードバック**")
             st.caption("欲しい機能・追加してほしい項目・気になった点など、何でもどうぞ。今後の改善に活用します。")
@@ -566,7 +591,8 @@ def main():
                 )
                 if st.button("フィードバックを送る"):
                     if fb_text:
-                        save_log(area, madori, age, structure, pattern_choice, total, quote, note=fb_text)
+                        save_log(area, madori, age, structure, pattern_choice,
+                                 total, quote, note=fb_text)
                     st.session_state.feedback_sent = True
                     st.rerun()
             else:
