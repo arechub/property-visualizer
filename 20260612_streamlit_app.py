@@ -54,18 +54,22 @@ IMAGE_STYLES = {
     'シック': {
         'prompt': 'sophisticated, dark slate walls, dark wood flooring, moody lighting, minimal black furniture',
         'bg': '#3d3d3d', 'fg': 'white', 'desc': 'ダーク&ラグジュアリー',
+        'photo': 'photos/20260612_style_chic.png',
     },
     '明るく': {
         'prompt': 'bright and airy, white walls, light oak flooring, large windows, cheerful natural light',
         'bg': '#fff3cd', 'fg': '#555', 'desc': '白基調・開放感',
+        'photo': 'photos/20260612_style_bright.png',
     },
     'ナチュラル': {
         'prompt': 'natural wood, indoor plants, warm beige tones, linen textures, Japandi style',
         'bg': '#c8e6c9', 'fg': '#2e4a2e', 'desc': '木材・植物・温もり',
+        'photo': 'photos/20260612_style_natural.png',
     },
     'モダン': {
         'prompt': 'modern contemporary, concrete finish, steel accents, clean lines, monochrome palette',
         'bg': '#9e9e9e', 'fg': 'white', 'desc': 'コンクリート調・スタイリッシュ',
+        'photo': 'photos/20260612_style_modern.png',
     },
 }
 
@@ -471,11 +475,14 @@ def main():
     swatch_cols = st.columns(4)
     for col, (name, info) in zip(swatch_cols, IMAGE_STYLES.items()):
         with col:
+            photo_path = SCRIPT_DIR / info['photo']
+            if photo_path.exists():
+                st.image(str(photo_path), use_column_width=True)
             st.markdown(
-                f'<div style="background:{info["bg"]};height:64px;border-radius:8px;'
-                f'display:flex;flex-direction:column;align-items:center;justify-content:center;'
-                f'color:{info["fg"]};font-weight:bold;font-size:14px;gap:4px;">'
-                f'{name}'
+                f'<div style="background:{info["bg"]};padding:6px 4px;'
+                f'border-radius:0 0 6px 6px;text-align:center;'
+                f'color:{info["fg"]};font-weight:bold;font-size:13px;line-height:1.4;">'
+                f'{name}<br>'
                 f'<span style="font-size:10px;font-weight:normal;">{info["desc"]}</span>'
                 f'</div>',
                 unsafe_allow_html=True,
