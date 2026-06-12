@@ -389,6 +389,7 @@ def main():
         st.session_state.simulation_triggered = False
         st.session_state.property_photo      = None
         st.session_state.property_photo_name = None
+        st.session_state.style_choice        = list(IMAGE_STYLES.keys())[0]
 
     # ── サイドバー：マスター認証 ──────────────────────────────
     with st.sidebar:
@@ -693,19 +694,26 @@ def main():
             photo_path = SCRIPT_DIR / info['photo']
             if photo_path.exists():
                 st.image(str(photo_path), use_column_width=True)
+            is_selected = st.session_state.style_choice == name
+            outline = "outline: 3px solid #1f77b4;" if is_selected else ""
             st.markdown(
                 f'<div style="background:{info["bg"]};padding:6px 4px;'
                 f'border-radius:0 0 6px 6px;text-align:center;'
-                f'color:{info["fg"]};font-weight:bold;font-size:13px;line-height:1.4;">'
+                f'color:{info["fg"]};font-weight:bold;font-size:13px;line-height:1.4;{outline}">'
                 f'{name}<br>'
                 f'<span style="font-size:10px;font-weight:normal;">{info["desc"]}</span>'
                 f'</div>',
                 unsafe_allow_html=True,
             )
-    style_choice = st.radio(
-        "スタイル選択", list(IMAGE_STYLES.keys()),
-        horizontal=True, label_visibility="collapsed",
-    )
+            btn_label = "✓ 選択中" if is_selected else "選択する"
+            btn_type  = "primary" if is_selected else "secondary"
+            if st.button(btn_label, key=f"style_btn_{name}",
+                         use_container_width=True, type=btn_type):
+                st.session_state.style_choice  = name
+                st.session_state.room_image    = None
+                st.session_state.room_image_style = None
+                st.rerun()
+    style_choice = st.session_state.style_choice
 
     # 業者見積り入力（必須）
     st.divider()
@@ -811,6 +819,11 @@ def main():
                 st.image(st.session_state.property_photo, use_column_width=True)
 
                 if st.session_state.room_image is None:
+                    st.caption(
+                        "💡 現在は無料APIで生成しているため、画像の精度に限りがあります。"
+                        "有料APIへの切り替えにより、Before写真の構造を保ったより高精度な"
+                        "Afterイメージの生成が可能になります（実装予定）。"
+                    )
                     if st.button("この写真でAfterイメージを生成する", type="primary",
                                  key="gen_after"):
                         with st.spinner("Afterイメージを生成中...（1〜2分かかる場合があります）"):
