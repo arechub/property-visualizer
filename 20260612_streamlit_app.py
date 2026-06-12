@@ -171,33 +171,74 @@ def analyze_floor_plan(image):
     return json.loads(text)
 
 
-# ── After画像生成（FLUX.1-Kontext: 同じ部屋の仕上げだけ変換） ──
+# ── After画像生成 ────────────────────────────────────────────
+# HUGGING_FACE_PRO=true のとき: FLUX.1-Kontext（img2img・構造保持）
+# それ以外              : Claude Vision解析 → FLUX.1-schnell（無料）
 def generate_after_image(photo_file, style_key):
-    token = os.environ.get("HUGGING_FACE_TOKEN")
+    token   = os.environ.get("HUGGING_FACE_TOKEN")
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    is_pro  = os.environ.get("HUGGING_FACE_PRO", "").lower() == "true"
+
     if not token:
         raise ValueError("HUGGING_FACE_TOKEN が設定されていません。")
 
     photo_bytes = photo_file.read()
     photo_file.seek(0)
-    pil_image = PILImage.open(io.BytesIO(photo_bytes)).convert("RGB")
-
     style_prompt = IMAGE_STYLES[style_key]['prompt']
-    instruction = (
-        f"Complete renovation of this room: {style_prompt}. "
-        "Keep the exact same camera angle, room layout, ceiling height, window positions, and door positions. "
-        "Do NOT change the architecture or room structure. "
-        "The result must look clearly different from the original."
-    )
-
     client = InferenceClient(token=token)
-    result = client.image_to_image(
-        pil_image,
-        prompt=instruction,
-        model="black-forest-labs/FLUX.1-Kontext-dev",
-    )
-    buf = io.BytesIO()
-    result.save(buf, format="PNG")
-    return buf.getvalue()
+
+    if is_pro:
+        # ── Pro: FLUX.1-Kontext（同じ部屋の仕上げだけ変換） ──
+        pil_image = PILImage.open(io.BytesIO(photo_bytes)).convert("RGB")
+        instruction = (
+            f"Complete renovation of this room: {style_prompt}. "
+            "Keep the exact same camera angle, room layout, ceiling height, "
+            "window positions, and door positions. "
+            "Do NOT change the architecture or room structure. "
+            "The result must look clearly different from the original."
+        )
+        result = client.image_to_image(
+            pil_image,
+            prompt=instruction,
+            model="black-forest-labs/FLUX.1-Kontext-dev",
+        )
+        buf = io.BytesIO()
+        result.save(buf, format="PNG")
+        return buf.getvalue()
+
+    else:
+        # ── Free: Claude Vision で部屋構造を分析 → FLUX.1-schnell ──
+        media_type = getattr(photo_file, 'type', 'image/jpeg')
+        if media_type not in ('image/png', 'image/jpeg', 'image/gif', 'image/webp'):
+            media_type = 'image/jpeg'
+        vision_model = os.environ.get("MADORI_MODEL", "claude-haiku-4-5-20251001")
+        ai_client = anthropic.Anthropic(api_key=api_key)
+        vision_resp = ai_client.messages.create(
+            model=vision_model, max_tokens=80,
+            messages=[{"role": "user", "content": [
+                {"type": "image", "source": {
+                    "type": "base64", "media_type": media_type,
+                    "data": base64.standard_b64encode(photo_bytes).decode('utf-8'),
+                }},
+                {"type": "text", "text": (
+                    "Describe the fixed architecture of this Japanese apartment room in under 40 words. "
+                    "Include: kitchen layout type, ceiling height, window/door positions, room size. "
+                    "English only. Focus on structural elements that stay after renovation."
+                )},
+            ]}],
+        )
+        room_structure = vision_resp.content[0].text.strip()
+        prompt = (
+            f"photorealistic interior photo, Japanese apartment after renovation, "
+            f"room structure: {room_structure}, "
+            f"renovation: {style_prompt}, "
+            "professional architectural photography, 8k, sharp focus, "
+            "no people, no text, no watermark"
+        )
+        image = client.text_to_image(prompt, model="black-forest-labs/FLUX.1-schnell")
+        buf = io.BytesIO()
+        image.save(buf, format="PNG")
+        return buf.getvalue()
 
 
 # ── 計算 ──────────────────────────────────────────────────────
