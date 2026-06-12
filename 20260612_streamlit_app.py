@@ -152,9 +152,10 @@ def generate_room_image(madori, area, style_key):
 
     style_prompt = IMAGE_STYLES[style_key]['prompt']
     prompt = (
-        f"Japanese {madori} apartment interior room, {area:.0f} sqm, "
-        f"after renovation, {style_prompt}, "
-        "interior design photography, realistic, high quality, no people, no text"
+        f"photorealistic interior photo, Japanese {madori} apartment, {area:.0f} sqm, "
+        f"after full renovation, {style_prompt}, "
+        "professional architectural photography, natural lighting, 8k, "
+        "shot on Canon EOS R5, sharp focus, no people, no text, no watermark"
     )
     client = InferenceClient(token=token)
     image = client.text_to_image(prompt, model="black-forest-labs/FLUX.1-schnell")
@@ -272,10 +273,11 @@ def main():
         st.session_state.analysis_result = None
         st.session_state.is_master       = False
         st.session_state.session_analyses = 0
-        st.session_state.comparison_quote = None
-        st.session_state.room_image       = None
-        st.session_state.room_image_style = None
-        st.session_state.feedback_sent    = False
+        st.session_state.comparison_quote    = None
+        st.session_state.room_image         = None
+        st.session_state.room_image_style   = None
+        st.session_state.feedback_sent      = False
+        st.session_state.simulation_triggered = False
 
     # ── サイドバー：マスター認証 ──────────────────────────────
     with st.sidebar:
@@ -448,7 +450,14 @@ def main():
         tier = PATTERN_TIERS[pattern_choice]
         selected = [r for r in all_items if int(r['tier']) <= tier]
 
+    if st.button("この条件でシミュレートする", type="primary"):
+        st.session_state.simulation_triggered = True
+
     st.divider()
+
+    if not st.session_state.simulation_triggered:
+        st.caption("物件情報とリフォームパターンを入力したら「シミュレートする」を押してください。")
+        return
 
     if not selected:
         st.info("項目を選択してください。")
@@ -457,7 +466,6 @@ def main():
     results = calculate(area, madori, selected)
     html_table, total = build_html_table(results)
 
-    st.subheader(f"概算合計：¥{total:,}")
     st.markdown(html_table, unsafe_allow_html=True)
     st.divider()
 
