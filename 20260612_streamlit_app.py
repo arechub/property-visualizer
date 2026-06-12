@@ -633,7 +633,7 @@ def main():
                                 st.session_state.room_image_style = style_choice
                                 st.rerun()
                             except Exception as e:
-                                st.warning(f"画像生成に失敗しました（{e}）")
+                                st.error(f"画像生成エラー：{type(e).__name__}: {e}")
                 else:
                     st.divider()
                     st.write("**Before / After**")
