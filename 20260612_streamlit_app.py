@@ -13,6 +13,7 @@ import pandas as pd
 import requests
 import streamlit as st
 from dotenv import load_dotenv
+from huggingface_hub import InferenceClient
 from streamlit_paste_button import paste_image_button as pbutton
 
 # ── 使用制限（ここを変更するだけで上限を調整可） ───────────
@@ -155,14 +156,11 @@ def generate_room_image(madori, area, style_key):
         f"after renovation, {style_prompt}, "
         "interior design photography, realistic, high quality, no people, no text"
     )
-    resp = requests.post(
-        "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell",
-        headers={"Authorization": f"Bearer {token}"},
-        json={"inputs": prompt},
-        timeout=120,
-    )
-    resp.raise_for_status()
-    return resp.content
+    client = InferenceClient(token=token)
+    image = client.text_to_image(prompt, model="black-forest-labs/FLUX.1-schnell")
+    buf = io.BytesIO()
+    image.save(buf, format="PNG")
+    return buf.getvalue()
 
 
 # ── 計算 ──────────────────────────────────────────────────────
@@ -277,6 +275,7 @@ def main():
         st.session_state.comparison_quote = None
         st.session_state.room_image       = None
         st.session_state.room_image_style = None
+        st.session_state.feedback_sent    = False
 
     # ── サイドバー：マスター認証 ──────────────────────────────
     with st.sidebar:
@@ -493,18 +492,12 @@ def main():
 
     st.divider()
 
-    # ── フィードバック ────────────────────────────────────────
-    feedback = st.text_area(
-        "フィードバック（任意）",
-        placeholder="欲しい機能・追加してほしい項目・気になった点など、何でもどうぞ",
-        height=80,
-    )
-
     # ── 比較ボタン ────────────────────────────────────────────
     if quote == 0:
         st.caption("業者から見積りを取ったら金額を入力してください。")
     else:
         if st.button("比較する", type="primary"):
+            st.session_state.feedback_sent = False
             with st.spinner("リフォームイメージを生成中...（30秒ほどかかる場合があります）"):
                 try:
                     img_bytes = generate_room_image(madori, area, style_choice)
@@ -513,7 +506,7 @@ def main():
                 except Exception as e:
                     st.session_state.room_image = None
                     st.warning(f"画像生成に失敗しました（{e}）")
-            save_log(area, madori, age, structure, pattern_choice, total, quote, note=feedback)
+            save_log(area, madori, age, structure, pattern_choice, total, quote)
             st.session_state.comparison_quote = quote
 
         # ── 結果出力 ─────────────────────────────────────────
@@ -552,6 +545,24 @@ def main():
                     st.info("画像生成失敗")
 
             st.caption("※Afterはイメージ画像です。実際の仕上がりとは異なります。")
+
+            # ── フィードバック（結果表示後） ──────────────────
+            st.divider()
+            st.write("**フィードバック**")
+            st.caption("欲しい機能・追加してほしい項目・気になった点など、何でもどうぞ。今後の改善に活用します。")
+            if not st.session_state.feedback_sent:
+                fb_text = st.text_area(
+                    "コメント（任意）",
+                    placeholder="例：〇〇の項目も欲しい / △△が使いにくかった など",
+                    height=80,
+                )
+                if st.button("フィードバックを送る"):
+                    if fb_text:
+                        save_log(area, madori, age, structure, pattern_choice, total, quote, note=fb_text)
+                    st.session_state.feedback_sent = True
+                    st.rerun()
+            else:
+                st.caption("✓ フィードバックを送信しました。ありがとうございます。")
 
 
 if __name__ == '__main__':

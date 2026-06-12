@@ -4,3 +4,4 @@ python-dotenv
 pandas
 streamlit-paste-button
 requests
+huggingface-hub
