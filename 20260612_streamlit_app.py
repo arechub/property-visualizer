@@ -1,6 +1,6 @@
 """PropertyVisualizer - リフォームシミュレーター（Streamlit版）v1.7"""
 
-APP_VERSION = "v1.9"
+APP_VERSION = "v2.0"
 
 import base64
 import csv

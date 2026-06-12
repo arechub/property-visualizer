@@ -97,7 +97,8 @@ Bの乖離 − Aの乖離 = B追加項目（LED等）の誤差、という形で
 
 | ファイル | 内容 |
 |---------|------|
-| `20260612_streamlit_app.py` | Streamlit版アプリ本体（v0.3）← メイン |
-| `20260612_renovation_calc.py` | CLIシミュレーター（v0.2） |
+| `20260612_streamlit_app.py` | Streamlit版アプリ本体（v2.0）← メイン |
+| `20260612_renovation_calc.py` | CLIシミュレーター（参考用） |
 | `20260612_master_prices.csv` | 単価マスターファイル（直接編集で単価調整可） |
-| `renovation_log.csv` | 実績ログ（自動生成・蓄積） |
+| `20260612_design_history.md` | 設計履歴ドキュメント（フロー・技術選定・判断経緯） |
+| `renovation_log.csv` | ローカル開発フォールバック用（本番はGoogle Sheetsに保存） |
