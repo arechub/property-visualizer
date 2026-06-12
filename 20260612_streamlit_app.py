@@ -1,4 +1,6 @@
-"""PropertyVisualizer - リフォームシミュレーター（Streamlit版）v1.1"""
+"""PropertyVisualizer - リフォームシミュレーター（Streamlit版）v1.7"""
+
+APP_VERSION = "v1.7"
 
 import base64
 import csv
@@ -314,7 +316,11 @@ def main():
                     st.error("パスワードが違います")
 
     # ── ヘッダー ──────────────────────────────────────────────
-    st.title("PropertyVisualizer")
+    st.markdown(
+        f'<h1 style="margin-bottom:0;">Property Visualizer '
+        f'<span style="font-size:14px;font-weight:normal;color:#888;">{APP_VERSION}</span></h1>',
+        unsafe_allow_html=True,
+    )
     st.caption("リフォームシミュレーター — 業者見積りの概算チェックツール")
     st.divider()
 
@@ -623,6 +629,16 @@ def main():
                         st.session_state.room_image       = None
                         st.session_state.room_image_style = None
                         st.rerun()
+
+
+    # ── コピーライト ──────────────────────────────────────────
+    st.divider()
+    st.markdown(
+        '<p style="text-align:center;color:#aaa;font-size:12px;">'
+        f'&copy; 2026 AReC LLC. All rights reserved. &nbsp;|&nbsp; {APP_VERSION}'
+        '</p>',
+        unsafe_allow_html=True,
+    )
 
 
 if __name__ == '__main__':
