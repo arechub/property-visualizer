@@ -50,7 +50,10 @@ PATTERN_DESC = {
 }
 
 MADORI_LIST   = ['1R', '1K', '1DK', '1LDK', '2K', '2DK', '2LDK', '3DK', '3LDK', '4LDK']
-AGE_OPTIONS   = ['築10年未満', '築10〜20年', '築20〜30年', '築30年以上']
+AGE_OPTIONS   = [
+    '築5年未満', '築5〜10年', '築10〜15年', '築15〜20年',
+    '築20〜25年', '築25〜30年', '築30〜40年', '築40年以上',
+]
 STRUCT_OPTIONS = ['RC造（鉄筋コンクリート）', '木造', '軽量鉄骨造', '重量鉄骨造']
 
 IMAGE_STYLES = {
@@ -324,11 +327,11 @@ def build_html_table(results):
     return '\n'.join(rows), int(total)
 
 
-def save_log(area, madori, age, structure, pattern, estimated, actual=None, note=''):
+def save_log(area, madori, age, structure, pattern, estimated, actual=None, note='', log_date=None):
     is_new = not LOG_PATH.exists()
     ratio = round(actual / estimated, 4) if actual else ''
     row = {
-        'date': date.today().isoformat(),
+        'date': log_date or date.today().isoformat(),
         'area': area, 'madori': madori, 'age': age, 'structure': structure,
         'pattern': pattern, 'estimated': estimated,
         'actual': actual or '', 'ratio': ratio, 'note': note,
@@ -396,60 +399,87 @@ def main():
                 st.session_state.is_master = False
                 st.rerun()
 
+            # ── 過去案件の登録 ────────────────────────────────
+            with st.expander("過去案件の登録"):
+                with st.form("past_case_form"):
+                    past_date = st.date_input("発注日", value=date.today())
+                    past_area = st.number_input("専有面積（㎡）", min_value=10.0,
+                                                max_value=200.0, value=30.0, step=0.5)
+                    past_madori   = st.selectbox("間取り", MADORI_LIST)
+                    past_age      = st.selectbox("築年数", AGE_OPTIONS)
+                    past_structure = st.selectbox("構造", STRUCT_OPTIONS)
+                    past_pattern  = st.selectbox("パターン", ['A', 'B', 'C'])
+
+                    # 概算を自動計算
+                    _items = load_items()
+                    _sel   = [r for r in _items if int(r['tier']) <= PATTERN_TIERS[past_pattern]]
+                    _res   = calculate(past_area, past_madori, _sel)
+                    _, past_estimated = build_html_table(_res)
+                    st.metric("概算額（現マスター）", f"¥{past_estimated:,}")
+
+                    past_actual = st.number_input("実発注額（円）", min_value=0,
+                                                  value=0, step=10000)
+                    submitted = st.form_submit_button("登録する", type="primary")
+                    if submitted:
+                        if past_actual <= 0:
+                            st.error("実発注額を入力してください。")
+                        else:
+                            save_log(past_area, past_madori, past_age, past_structure,
+                                     past_pattern, past_estimated, past_actual,
+                                     log_date=past_date.isoformat())
+                            st.success("登録しました。")
+
             # ── 分析レポート ──────────────────────────────────
-            st.divider()
-            st.write("**分析レポート**")
-            df_log = load_log_df()
-            df_valid = df_log.dropna(subset=['actual', 'estimated'])
-            df_valid = df_valid[df_valid['actual'] > 0].copy()
+            with st.expander("分析レポート"):
+                df_log = load_log_df()
+                df_valid = df_log.dropna(subset=['actual', 'estimated'])
+                df_valid = df_valid[df_valid['actual'] > 0].copy()
 
-            if df_valid.empty:
-                st.caption("比較データがまだありません。")
-            else:
-                # パターン別集計
-                stats = (
-                    df_valid.groupby('pattern')['ratio']
-                    .agg(件数='count', 平均概算比='mean')
-                    .reset_index()
-                )
-                stats['平均概算比'] = (stats['平均概算比'] * 100).round(1).astype(str) + '%'
-                stats.columns = ['パターン', '件数', '平均概算比']
-                st.dataframe(stats, hide_index=True, use_container_width=True)
-
-                # テキストFB
-                notes = df_log[
-                    df_log['note'].notna() & (df_log['note'].astype(str).str.strip() != '')
-                ][['date', 'pattern', 'note']].tail(5)
-                if not notes.empty:
-                    st.write("**テキストFB（最新5件）**")
-                    for _, r in notes.iterrows():
-                        st.caption(f"{r['date']} [{r['pattern']}] {r['note']}")
-
-                # 単価調整
-                st.divider()
-                st.write("**単価調整（カテゴリ別）**")
-                st.caption("調整率を入力して「反映する」を押すと master_prices.csv を更新します。")
-                adj_a = st.number_input("カテゴリA（原状回復）%", value=0, step=5,
-                                        min_value=-50, max_value=100, key="adj_a")
-                adj_b = st.number_input("カテゴリB（競争力向上）%", value=0, step=5,
-                                        min_value=-50, max_value=100, key="adj_b")
-                adj_c = st.number_input("カテゴリC（商品化）%", value=0, step=5,
-                                        min_value=-50, max_value=100, key="adj_c")
-
-                if any(v != 0 for v in [adj_a, adj_b, adj_c]):
-                    label = (
-                        f"A:{adj_a:+d}%　B:{adj_b:+d}%　C:{adj_c:+d}%　で反映する"
-                    )
-                    if st.button(label, type="primary"):
-                        apply_price_adjustment({
-                            'A': 1 + adj_a / 100,
-                            'B': 1 + adj_b / 100,
-                            'C': 1 + adj_c / 100,
-                        })
-                        st.success("単価を更新しました。")
-                        st.rerun()
+                if df_valid.empty:
+                    st.caption("比較データがまだありません。")
                 else:
-                    st.caption("調整率を入力するとボタンが表示されます。")
+                    # パターン別集計
+                    stats = (
+                        df_valid.groupby('pattern')['ratio']
+                        .agg(件数='count', 平均概算比='mean')
+                        .reset_index()
+                    )
+                    stats['平均概算比'] = (stats['平均概算比'] * 100).round(1).astype(str) + '%'
+                    stats.columns = ['パターン', '件数', '平均概算比']
+                    st.dataframe(stats, hide_index=True, use_container_width=True)
+
+                    # テキストFB
+                    notes = df_log[
+                        df_log['note'].notna() & (df_log['note'].astype(str).str.strip() != '')
+                    ][['date', 'pattern', 'note']].tail(5)
+                    if not notes.empty:
+                        st.write("**テキストFB（最新5件）**")
+                        for _, r in notes.iterrows():
+                            st.caption(f"{r['date']} [{r['pattern']}] {r['note']}")
+
+                    # 単価調整
+                    st.divider()
+                    st.write("**単価調整（カテゴリ別）**")
+                    st.caption("調整率を入力して承認するとmaster_prices.csvを更新します。")
+                    adj_a = st.number_input("カテゴリA（原状回復）%", value=0, step=5,
+                                            min_value=-50, max_value=100, key="adj_a")
+                    adj_b = st.number_input("カテゴリB（競争力向上）%", value=0, step=5,
+                                            min_value=-50, max_value=100, key="adj_b")
+                    adj_c = st.number_input("カテゴリC（商品化）%", value=0, step=5,
+                                            min_value=-50, max_value=100, key="adj_c")
+
+                    if any(v != 0 for v in [adj_a, adj_b, adj_c]):
+                        if st.button(f"A:{adj_a:+d}%　B:{adj_b:+d}%　C:{adj_c:+d}%　で反映する",
+                                     type="primary"):
+                            apply_price_adjustment({
+                                'A': 1 + adj_a / 100,
+                                'B': 1 + adj_b / 100,
+                                'C': 1 + adj_c / 100,
+                            })
+                            st.success("単価を更新しました。")
+                            st.rerun()
+                    else:
+                        st.caption("調整率を入力するとボタンが表示されます。")
 
         else:
             remaining = GUEST_SESSION_LIMIT - st.session_state.session_analyses
