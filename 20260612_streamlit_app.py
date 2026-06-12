@@ -101,11 +101,31 @@ IMAGE_STYLES = {
 
 SCRIPT_DIR = Path(__file__).parent
 CSV_PATH   = SCRIPT_DIR / '20260612_master_prices.csv'
-LOG_PATH   = SCRIPT_DIR / 'renovation_log.csv'
+LOG_PATH   = SCRIPT_DIR / 'renovation_log.csv'  # ローカル開発フォールバック用
 LOG_FIELDS = ['date', 'area', 'madori', 'age', 'structure', 'pattern',
               'estimated', 'actual', 'ratio', 'note']
 
 load_dotenv(SCRIPT_DIR / '.env')
+
+
+@st.cache_resource
+def get_gsheet():
+    """Google Sheetsワークシートを返す。Secrets未設定時はNone（CSVフォールバック）。"""
+    try:
+        import gspread
+        from google.oauth2.service_account import Credentials
+        creds_info = st.secrets.get("gcp_service_account")
+        sheet_id   = st.secrets.get("SPREADSHEET_ID")
+        if not creds_info or not sheet_id:
+            return None
+        creds = Credentials.from_service_account_info(
+            dict(creds_info),
+            scopes=["https://www.googleapis.com/auth/spreadsheets"],
+        )
+        client = gspread.authorize(creds)
+        return client.open_by_key(sheet_id).sheet1
+    except Exception:
+        return None
 
 
 # ── データ読み込み ────────────────────────────────────────────
@@ -328,25 +348,43 @@ def build_html_table(results):
 
 
 def save_log(area, madori, age, structure, pattern, estimated, actual=None, note='', log_date=None):
-    is_new = not LOG_PATH.exists()
     ratio = round(actual / estimated, 4) if actual else ''
     row = {
-        'date': log_date or date.today().isoformat(),
-        'area': area, 'madori': madori, 'age': age, 'structure': structure,
-        'pattern': pattern, 'estimated': estimated,
-        'actual': actual or '', 'ratio': ratio, 'note': note,
+        'date':      log_date or date.today().isoformat(),
+        'area':      area,
+        'madori':    madori,
+        'age':       age,
+        'structure': structure,
+        'pattern':   pattern,
+        'estimated': int(estimated),
+        'actual':    int(actual) if actual else '',
+        'ratio':     ratio,
+        'note':      note,
     }
-    with open(LOG_PATH, 'a', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=LOG_FIELDS)
-        if is_new:
-            writer.writeheader()
-        writer.writerow(row)
+    ws = get_gsheet()
+    if ws is not None:
+        ws.append_row([row[f] for f in LOG_FIELDS])
+    else:
+        # ローカル開発フォールバック（Secrets未設定時）
+        is_new = not LOG_PATH.exists()
+        with open(LOG_PATH, 'a', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=LOG_FIELDS)
+            if is_new:
+                writer.writeheader()
+            writer.writerow(row)
 
 
 def load_log_df():
-    if not LOG_PATH.exists():
+    ws = get_gsheet()
+    if ws is not None:
+        records = ws.get_all_records()
+        if not records:
+            return pd.DataFrame(columns=LOG_FIELDS)
+        df = pd.DataFrame(records)
+    elif LOG_PATH.exists():
+        df = pd.read_csv(LOG_PATH, dtype=str)
+    else:
         return pd.DataFrame(columns=LOG_FIELDS)
-    df = pd.read_csv(LOG_PATH, dtype=str)
     df['estimated'] = pd.to_numeric(df['estimated'], errors='coerce')
     df['actual']    = pd.to_numeric(df['actual'], errors='coerce')
     df['ratio']     = df['actual'] / df['estimated']

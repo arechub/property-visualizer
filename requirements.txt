@@ -6,3 +6,5 @@ streamlit-paste-button
 requests
 huggingface-hub
 Pillow
+gspread
+google-auth
