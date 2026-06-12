@@ -340,6 +340,35 @@ def save_log(area, madori, age, structure, pattern, estimated, actual=None, note
         writer.writerow(row)
 
 
+def load_log_df():
+    if not LOG_PATH.exists():
+        return pd.DataFrame(columns=LOG_FIELDS)
+    df = pd.read_csv(LOG_PATH, dtype=str)
+    df['estimated'] = pd.to_numeric(df['estimated'], errors='coerce')
+    df['actual']    = pd.to_numeric(df['actual'], errors='coerce')
+    df['ratio']     = df['actual'] / df['estimated']
+    return df
+
+
+def apply_price_adjustment(factors: dict):
+    """factors = {'A': 1.10, 'B': 1.05, 'C': 1.0} のように渡す"""
+    rows = []
+    with open(CSV_PATH, encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        fieldnames = reader.fieldnames
+        for row in reader:
+            cat = row['category']
+            if cat in factors and factors[cat] != 1.0:
+                new_price = round(float(row['unit_price']) * factors[cat])
+                row['unit_price'] = str(new_price)
+            rows.append(row)
+    with open(CSV_PATH, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    load_items.clear()  # キャッシュをクリア
+
+
 # ── メイン ────────────────────────────────────────────────────
 def main():
     st.set_page_config(page_title="リフォームシミュレーター", layout="centered")
@@ -366,6 +395,62 @@ def main():
             if st.button("ログアウト"):
                 st.session_state.is_master = False
                 st.rerun()
+
+            # ── 分析レポート ──────────────────────────────────
+            st.divider()
+            st.write("**分析レポート**")
+            df_log = load_log_df()
+            df_valid = df_log.dropna(subset=['actual', 'estimated'])
+            df_valid = df_valid[df_valid['actual'] > 0].copy()
+
+            if df_valid.empty:
+                st.caption("比較データがまだありません。")
+            else:
+                # パターン別集計
+                stats = (
+                    df_valid.groupby('pattern')['ratio']
+                    .agg(件数='count', 平均概算比='mean')
+                    .reset_index()
+                )
+                stats['平均概算比'] = (stats['平均概算比'] * 100).round(1).astype(str) + '%'
+                stats.columns = ['パターン', '件数', '平均概算比']
+                st.dataframe(stats, hide_index=True, use_container_width=True)
+
+                # テキストFB
+                notes = df_log[
+                    df_log['note'].notna() & (df_log['note'].astype(str).str.strip() != '')
+                ][['date', 'pattern', 'note']].tail(5)
+                if not notes.empty:
+                    st.write("**テキストFB（最新5件）**")
+                    for _, r in notes.iterrows():
+                        st.caption(f"{r['date']} [{r['pattern']}] {r['note']}")
+
+                # 単価調整
+                st.divider()
+                st.write("**単価調整（カテゴリ別）**")
+                st.caption("調整率を入力して「反映する」を押すと master_prices.csv を更新します。")
+                adj_a = st.number_input("カテゴリA（原状回復）%", value=0, step=5,
+                                        min_value=-50, max_value=100, key="adj_a")
+                adj_b = st.number_input("カテゴリB（競争力向上）%", value=0, step=5,
+                                        min_value=-50, max_value=100, key="adj_b")
+                adj_c = st.number_input("カテゴリC（商品化）%", value=0, step=5,
+                                        min_value=-50, max_value=100, key="adj_c")
+
+                if any(v != 0 for v in [adj_a, adj_b, adj_c]):
+                    label = (
+                        f"A:{adj_a:+d}%　B:{adj_b:+d}%　C:{adj_c:+d}%　で反映する"
+                    )
+                    if st.button(label, type="primary"):
+                        apply_price_adjustment({
+                            'A': 1 + adj_a / 100,
+                            'B': 1 + adj_b / 100,
+                            'C': 1 + adj_c / 100,
+                        })
+                        st.success("単価を更新しました。")
+                        st.rerun()
+                else:
+                    st.caption("調整率を入力するとボタンが表示されます。")
+
         else:
             remaining = GUEST_SESSION_LIMIT - st.session_state.session_analyses
             st.info(f"ゲストモード（解析残り {remaining} / {GUEST_SESSION_LIMIT} 回）")
