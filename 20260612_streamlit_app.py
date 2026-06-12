@@ -709,9 +709,15 @@ def main():
 
     # 業者見積り入力（必須）
     st.divider()
-    st.write("**業者見積り金額（円）**")
-    quote = st.number_input("業者見積り", min_value=0, value=0, step=10000,
-                            label_visibility="collapsed")
+    col_q, col_d = st.columns([3, 2])
+    with col_q:
+        st.write("**業者見積り金額（円）**")
+        quote = st.number_input("業者見積り", min_value=0, value=0, step=10000,
+                                label_visibility="collapsed")
+    with col_d:
+        st.write("**見積り日 / 発注日**")
+        quote_date = st.date_input("見積り日", value=None, label_visibility="collapsed")
+        st.caption("任意")
 
     # シミュレートボタン（見積り入力後に出現）
     st.divider()
@@ -724,7 +730,9 @@ def main():
             st.session_state.room_image_style = None
             st.session_state.property_photo      = None
             st.session_state.property_photo_name = None
-            save_log(area, madori, age, structure, pattern_choice, total, quote)
+            log_date = quote_date.isoformat() if quote_date else None
+            save_log(area, madori, age, structure, pattern_choice, total, quote,
+                     log_date=log_date)
             st.session_state.simulation_triggered = True
             st.session_state.comparison_quote = quote
 
