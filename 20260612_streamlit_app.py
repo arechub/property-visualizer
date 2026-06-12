@@ -402,7 +402,8 @@ def main():
             # ── 過去案件の登録 ────────────────────────────────
             with st.expander("過去案件の登録"):
                 with st.form("past_case_form"):
-                    past_date = st.date_input("発注日", value=date.today())
+                    past_date = st.date_input("見積り日 または 発注日", value=None)
+                    st.caption("※ 実際の見積り日・発注日を入力してください（必須）")
                     past_area = st.number_input("専有面積（㎡）", min_value=10.0,
                                                 max_value=200.0, value=30.0, step=0.5)
                     past_madori   = st.selectbox("間取り", MADORI_LIST)
@@ -421,7 +422,9 @@ def main():
                                                   value=0, step=10000)
                     submitted = st.form_submit_button("登録する", type="primary")
                     if submitted:
-                        if past_actual <= 0:
+                        if past_date is None:
+                            st.error("見積り日 または 発注日を入力してください。")
+                        elif past_actual <= 0:
                             st.error("実発注額を入力してください。")
                         else:
                             save_log(past_area, past_madori, past_age, past_structure,
